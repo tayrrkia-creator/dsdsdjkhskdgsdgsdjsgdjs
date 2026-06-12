@@ -6,5 +6,8 @@ export const PLACEHOLDER_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA
 
 export const NAV_ITEMS = [
   { label: 'Home', href: '/', icon: 'home' },
+  { label: 'Live TV', href: '/live', icon: 'tv' },
+  { label: 'Movies', href: '/movies', icon: 'film' },
+  { label: 'Series', href: '/series', icon: 'clapperboard' },
   { label: 'Favorites', href: '/favorites', icon: 'heart' },
 ] as const;

@@ -1,109 +1,148 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { M3UChannel } from '@/lib/iptv';
+import { fetchApi, Category, LiveStream } from '@/lib/iptv';
+import ChannelCard from '@/components/ChannelCard';
+import CategoryFilter from '@/components/CategoryFilter';
 import SearchBar from '@/components/SearchBar';
 import { ChannelSkeleton } from '@/components/LoadingSkeleton';
 import { useFavorites } from '@/hooks/useFavorites';
-import { Tv, Heart } from 'lucide-react';
-import Link from 'next/link';
+import { Tv } from 'lucide-react';
 
 export default function LiveTV() {
-  const [channels, setChannels] = useState<M3UChannel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [streams, setStreams] = useState<LiveStream[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [loadingStreams, setLoadingStreams] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(48);
+
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
+  // Load categories on mount
   useEffect(() => {
-    async function loadWorldCupChannels() {
+    async function loadCategories() {
       try {
-        setLoading(true);
-        const res = await fetch('/api/iptv/worldcup');
-        if (!res.ok) throw new Error('Failed to load World Cup channels');
+        const res = await fetch('/api/iptv/live/categories');
+        if (!res.ok) throw new Error();
         const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        setChannels(data || []);
-      } catch (err: any) {
-        setError(err.message || 'Could not fetch channels');
+        setCategories(data || []);
+      } catch (err) {
+        console.error('Failed to load categories');
       } finally {
-        setLoading(false);
+        setLoadingCategories(false);
       }
     }
-    loadWorldCupChannels();
+    loadCategories();
   }, []);
 
-  const filteredChannels = useMemo(() => {
-    if (!searchQuery) return channels;
-    const query = searchQuery.toLowerCase();
-    return channels.filter((c) => c.name.toLowerCase().includes(query));
-  }, [channels, searchQuery]);
+  // Load streams when selected category changes
+  useEffect(() => {
+    async function loadStreams() {
+      setLoadingStreams(true);
+      setVisibleCount(48); // Reset pagination
+      try {
+        const url = selectedCategory
+          ? `/api/iptv/live/streams?category_id=${selectedCategory}`
+          : '/api/iptv/live/streams';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setStreams(data || []);
+      } catch (err) {
+        console.error('Failed to load streams');
+      } finally {
+        setLoadingStreams(false);
+      }
+    }
+    loadStreams();
+  }, [selectedCategory]);
 
-  const handleToggleFav = (channel: M3UChannel) => {
+  // Filter streams by search query
+  const filteredStreams = useMemo(() => {
+    if (!searchQuery) return streams;
+    const query = searchQuery.toLowerCase();
+    return streams.filter((stream) =>
+      stream.name.toLowerCase().includes(query)
+    );
+  }, [streams, searchQuery]);
+
+  const visibleStreams = useMemo(() => {
+    return filteredStreams.slice(0, visibleCount);
+  }, [filteredStreams, visibleCount]);
+
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => prev + 48);
+  };
+
+  const handleToggleFav = (streamId: number) => {
+    const stream = streams.find((s) => s.stream_id === streamId);
+    if (!stream) return;
     toggleFavorite({
-      id: channel.stream_id,
+      id: stream.stream_id,
       type: 'live',
-      name: channel.name,
-      icon: channel.logo,
+      name: stream.name,
+      icon: stream.stream_icon,
     });
   };
 
   return (
     <div className="page-enter">
-      <div className="page-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-        <h1>قنوات كأس العالم المباشرة</h1>
-        <p>شاهد بث جميع المباريات الحية والبرامج الرياضية لكأس العالم</p>
+      <div className="page-header">
+        <h1>Live Television</h1>
+        <p>Browse and play live TV channels from your provider</p>
       </div>
 
-      <div style={{ marginBottom: '24px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
         <SearchBar
           value={searchQuery}
           onChange={setSearchQuery}
-          placeholder="ابحث عن قنوات كأس العالم..."
+          placeholder="Search channels..."
         />
       </div>
 
-      {loading ? (
+      {loadingCategories ? (
+        <div className="skeleton" style={{ height: '38px', width: '100%', borderRadius: 'var(--radius-full)', marginBottom: '24px' }} />
+      ) : (
+        <CategoryFilter
+          categories={categories}
+          activeId={selectedCategory}
+          onSelect={setSelectedCategory}
+        />
+      )}
+
+      {loadingStreams ? (
         <ChannelSkeleton count={12} />
-      ) : filteredChannels.length > 0 ? (
-        <div className="content-grid channels">
-          {filteredChannels.map((channel) => (
-            <div className="channel-card" key={channel.stream_id}>
-              <Link
-                href={`/player?type=live&id=${channel.stream_id}`}
-                style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, textDecoration: 'none', color: 'inherit' }}
-              >
-                <img
-                  className="channel-logo"
-                  src={channel.logo || '/fallback.png'}
-                  alt={channel.name}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDQwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IiMxMzEzMWEiLz48cGF0aCBkPSJNMTc1IDE1MEwxNjAgMTcwSDE5MEwxNzUgMTUwWiIgZmlsbD0iIzMzMyIvPjxjaXJjbGUgY3g9IjE4NSIgY3k9IjEzNSIgcj0iOCIgZmlsbD0iIzMzMyIvPjxyZWN0IHg9IjE0MCIgeT0iMTIwIiB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHJ4PSI4IiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIvPjwvc3ZnPg==';
-                  }}
-                  loading="lazy"
-                />
-                <div className="channel-info">
-                  <div className="channel-name" style={{ textAlign: 'right', direction: 'rtl' }}>{channel.name}</div>
-                  <div className="channel-category">كأس العالم Live</div>
-                </div>
-                <span className="channel-live-badge">مباشر</span>
-              </Link>
-              <button
-                className={`favorite-btn ${isFavorite(channel.stream_id, 'live') ? 'active' : ''}`}
-                onClick={() => handleToggleFav(channel)}
-                aria-label="Add to library"
-              >
-                <Heart size={16} />
+      ) : visibleStreams.length > 0 ? (
+        <>
+          <div className="content-grid channels">
+            {visibleStreams.map((stream) => (
+              <ChannelCard
+                key={stream.stream_id}
+                streamId={stream.stream_id}
+                name={stream.name}
+                icon={stream.stream_icon}
+                isFavorite={isFavorite(stream.stream_id, 'live')}
+                onToggleFavorite={handleToggleFav}
+              />
+            ))}
+          </div>
+
+          {filteredStreams.length > visibleCount && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '32px' }}>
+              <button className="btn btn-secondary" onClick={handleLoadMore}>
+                Load More Channels ({filteredStreams.length - visibleCount} remaining)
               </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       ) : (
         <div className="empty-state">
-          <Tv size={48} />
-          <h3>لا توجد قنوات</h3>
-          <p>لم نتمكن من العثور على أي قنوات مطابقة لبحثك.</p>
+          <Tv />
+          <h3>No Channels Found</h3>
+          <p>We couldn't find any channels matching your filters or search.</p>
         </div>
       )}
     </div>

@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipBack, SkipForward, RefreshCw } from 'lucide-react';
 
 interface VideoPlayerProps {
   src: string;
@@ -14,7 +13,7 @@ interface VideoPlayerProps {
 
 export default function VideoPlayer({ src, title, autoPlay = true, isLive = false, onError }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const playerRef = useRef<any>(null); // hls or mpegts instance
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -24,6 +23,7 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
   const [currentTime, setCurrentTime] = useState('0:00');
   const [duration, setDuration] = useState('0:00');
   const [showControls, setShowControls] = useState(true);
+  const [playerError, setPlayerError] = useState<string | null>(null);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const formatTime = (seconds: number): string => {
@@ -35,63 +35,127 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  useEffect(() => {
+  const destroyPlayer = useCallback(() => {
+    if (playerRef.current) {
+      try {
+        if (typeof playerRef.current.destroy === 'function') {
+          playerRef.current.destroy();
+        }
+      } catch (e) {
+        // ignore
+      }
+      playerRef.current = null;
+    }
+  }, []);
+
+  const initPlayer = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !src) return;
 
     setIsLoading(true);
+    setPlayerError(null);
+    destroyPlayer();
 
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
+    const isM3u8 = src.includes('.m3u8');
+    const isTs = src.includes('.ts') && !isM3u8;
 
-    if (src.endsWith('.m3u8') && Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: isLive,
-        backBufferLength: isLive ? 0 : 90,
-      });
-      hlsRef.current = hls;
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setIsLoading(false);
-        if (autoPlay) video.play().catch(() => {});
-      });
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          setIsLoading(false);
-          onError?.('Stream playback error');
+    try {
+      if (isTs) {
+        // Use mpegts.js for raw MPEG-TS streams
+        const mpegts = (await import('mpegts.js')).default;
+        if (mpegts.isSupported()) {
+          const player = mpegts.createPlayer({
+            type: 'mpegts',
+            isLive: isLive,
+            url: src,
+          }, {
+            enableWorker: true,
+            lazyLoadMaxDuration: 3 * 60,
+            seekType: 'range',
+            liveBufferLatencyChasing: isLive,
+            liveBufferLatencyMaxLatency: 1.5,
+            liveBufferLatencyMinRemain: 0.3,
+          });
+          playerRef.current = player;
+          player.attachMediaElement(video);
+          player.load();
+
+          player.on(mpegts.Events.ERROR, (errorType: string, errorDetail: string) => {
+            console.error('mpegts.js error:', errorType, errorDetail);
+            setIsLoading(false);
+            setPlayerError(`Stream error: ${errorDetail || errorType}`);
+            onError?.(`Stream error: ${errorDetail || errorType}`);
+          });
+
+          player.on(mpegts.Events.LOADING_COMPLETE, () => {
+            // For non-live, this is expected
+          });
+
+          if (autoPlay) {
+            video.play().catch(() => {
+              // Autoplay blocked, show play button
+              setIsPlaying(false);
+            });
+          }
+        } else {
+          setPlayerError('Your browser does not support MPEG-TS playback');
+          onError?.('Browser does not support MPEG-TS playback');
         }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = src;
-      video.addEventListener('loadedmetadata', () => {
-        setIsLoading(false);
-        if (autoPlay) video.play().catch(() => {});
-      });
-    } else {
-      video.src = src;
-      video.addEventListener('loadeddata', () => {
-        setIsLoading(false);
-        if (autoPlay) video.play().catch(() => {});
-      });
-    }
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
+      } else if (isM3u8) {
+        // Use hls.js for HLS streams
+        const Hls = (await import('hls.js')).default;
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: isLive,
+            backBufferLength: isLive ? 0 : 90,
+          });
+          playerRef.current = hls;
+          hls.loadSource(src);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setIsLoading(false);
+            if (autoPlay) video.play().catch(() => {});
+          });
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+              console.error('HLS fatal error:', data);
+              setIsLoading(false);
+              setPlayerError('HLS stream error. The stream may be offline.');
+              onError?.('HLS stream error');
+            }
+          });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari native HLS
+          video.src = src;
+          if (autoPlay) video.play().catch(() => {});
+        }
+      } else {
+        // Direct playback (mp4, etc.)
+        video.src = src;
+        video.addEventListener('loadeddata', () => {
+          setIsLoading(false);
+          if (autoPlay) video.play().catch(() => {});
+        }, { once: true });
       }
-    };
-  }, [src, autoPlay, isLive, onError]);
+    } catch (err: any) {
+      console.error('Player init error:', err);
+      setPlayerError('Failed to initialize video player');
+      onError?.('Failed to initialize video player');
+      setIsLoading(false);
+    }
+  }, [src, autoPlay, isLive, onError, destroyPlayer]);
+
+  useEffect(() => {
+    initPlayer();
+    return () => destroyPlayer();
+  }, [initPlayer, destroyPlayer]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const onPlay = () => setIsPlaying(true);
+    const onPlay = () => { setIsPlaying(true); setIsLoading(false); };
     const onPause = () => setIsPlaying(false);
     const onTimeUpdate = () => {
       if (video.duration && isFinite(video.duration)) {
@@ -102,12 +166,20 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
     };
     const onWaiting = () => setIsLoading(true);
     const onCanPlay = () => setIsLoading(false);
+    const onVideoError = () => {
+      setIsLoading(false);
+      if (!playerError) {
+        setPlayerError('The media playback was aborted. The video is either unsupported, offline, or your connection was interrupted.');
+        onError?.('Media playback error');
+      }
+    };
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('waiting', onWaiting);
     video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('error', onVideoError);
 
     return () => {
       video.removeEventListener('play', onPlay);
@@ -115,8 +187,9 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('error', onVideoError);
     };
-  }, []);
+  }, [onError, playerError]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -164,6 +237,11 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
     controlsTimeout.current = setTimeout(() => setShowControls(false), 3000);
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setPlayerError(null);
+    initPlayer();
+  }, [initPlayer]);
+
   return (
     <div
       ref={containerRef}
@@ -179,9 +257,23 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
         crossOrigin="anonymous"
       />
 
-      {isLoading && (
+      {isLoading && !playerError && (
         <div className="player-loading">
           <div className="player-spinner" />
+        </div>
+      )}
+
+      {playerError && (
+        <div className="player-loading" style={{ flexDirection: 'column', gap: '16px', textAlign: 'center', padding: '24px' }}>
+          <div style={{ color: 'var(--accent-rose)', fontSize: '18px', fontWeight: 600 }}>
+            Stream Unavailable
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '400px' }}>
+            {playerError}
+          </p>
+          <button className="btn btn-primary" onClick={handleRetry} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <RefreshCw size={16} /> Retry
+          </button>
         </div>
       )}
 

@@ -13,7 +13,7 @@ function PlayerContent() {
 
   const type = searchParams.get('type') || 'live';
   const id = searchParams.get('id');
-  const ext = searchParams.get('ext') || 'm3u8';
+  const ext = searchParams.get('ext') || (type === 'live' ? 'ts' : 'mp4');
 
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [vodInfo, setVodInfo] = useState<VodInfo | null>(null);

@@ -6,6 +6,9 @@ import { Home, Tv, Film, Clapperboard, Heart, Zap } from 'lucide-react';
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/', icon: Home },
+  { label: 'Live TV', href: '/live', icon: Tv },
+  { label: 'Movies', href: '/movies', icon: Film },
+  { label: 'Series', href: '/series', icon: Clapperboard },
   { label: 'Favorites', href: '/favorites', icon: Heart },
 ];
 
