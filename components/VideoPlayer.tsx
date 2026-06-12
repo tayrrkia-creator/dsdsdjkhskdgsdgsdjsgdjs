@@ -95,8 +95,11 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
     setBufferProgress(0);
     destroyPlayer();
 
-    const isM3u8 = src.includes('.m3u8');
-    const isTs = src.includes('.ts') && !isM3u8;
+    // Detect format from file extension OR query param (for proxy URLs like /api/iptv/proxy?extension=ts)
+    const urlObj = (() => { try { return new URL(src, window.location.origin); } catch { return null; } })();
+    const extParam = urlObj?.searchParams.get('extension') || '';
+    const isM3u8 = src.includes('.m3u8') || extParam === 'm3u8';
+    const isTs = (src.includes('.ts') || extParam === 'ts' || src.includes('extension=ts')) && !isM3u8;
 
     try {
       if (isTs) {

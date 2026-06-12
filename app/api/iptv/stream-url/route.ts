@@ -1,5 +1,4 @@
 import type { NextRequest } from 'next/server';
-import { getLiveStreamUrl, getVodStreamUrl, getSeriesStreamUrl } from '@/lib/iptv';
 
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get('type');
@@ -12,21 +11,9 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'type and stream_id are required' }, { status: 400 });
   }
 
-  let url: string;
-  switch (type) {
-    case 'live':
-      url = getLiveStreamUrl(parseInt(streamId), extension);
-      break;
-    case 'vod':
-      url = getVodStreamUrl(parseInt(streamId), extension);
-      break;
-    case 'series':
-      url = getSeriesStreamUrl(parseInt(streamId), extension);
-      break;
-    default:
-      return Response.json({ error: 'Invalid type' }, { status: 400 });
-  }
+  // Return a proxy URL instead of the direct IPTV server URL
+  // This solves HTTPS mixed content issues on Vercel deployments
+  const proxyUrl = `/api/iptv/proxy?type=${type}&stream_id=${streamId}&extension=${extension}`;
 
-  return Response.json({ url });
+  return Response.json({ url: proxyUrl });
 }
-
