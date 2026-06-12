@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const data = await fetchApi<AuthResponse>();
-    return Response.json({ ...data, antigravity_test: "active" });
+    return Response.json(data);
   } catch (error) {
-    return Response.json({ error: 'Failed to authenticate', antigravity_test: "active_error" }, { status: 500 });
+    return Response.json({ error: 'Failed to authenticate' }, { status: 500 });
   }
 }
