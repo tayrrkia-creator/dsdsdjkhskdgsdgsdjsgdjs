@@ -203,3 +203,116 @@ export function getVodStreamUrl(streamId: number, extension: string): string {
 export function getSeriesStreamUrl(streamId: number, extension: string): string {
   return `${IPTV_SERVER}/series/${IPTV_USERNAME}/${IPTV_PASSWORD}/${streamId}.${extension}`;
 }
+
+export interface M3UChannel {
+  name: string;
+  logo: string;
+  group: string;
+  url: string;
+  stream_id: number;
+}
+
+export const MOCK_WORLD_CUP_CHANNELS: M3UChannel[] = [
+  {
+    name: "beIN SPORTS MAX 1 HD (كأس العالم)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF5zI5s0P-3l3r7tZ8LwZ8F1P5k4D6D2A&s",
+    group: "كأس العالم",
+    url: `${IPTV_SERVER}/live/${IPTV_USERNAME}/${IPTV_PASSWORD}/2001.ts`,
+    stream_id: 2001
+  },
+  {
+    name: "beIN SPORTS MAX 2 HD (كأس العالم)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF5zI5s0P-3l3r7tZ8LwZ8F1P5k4D6D2A&s",
+    group: "كأس العالم",
+    url: `${IPTV_SERVER}/live/${IPTV_USERNAME}/${IPTV_PASSWORD}/2002.ts`,
+    stream_id: 2002
+  },
+  {
+    name: "beIN SPORTS MAX 3 HD (كأس العالم)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF5zI5s0P-3l3r7tZ8LwZ8F1P5k4D6D2A&s",
+    group: "كأس العالم",
+    url: `${IPTV_SERVER}/live/${IPTV_USERNAME}/${IPTV_PASSWORD}/2003.ts`,
+    stream_id: 2003
+  },
+  {
+    name: "Alkass EXTRA One HD (كأس العالم)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF5zI5s0P-3l3r7tZ8LwZ8F1P5k4D6D2A&s",
+    group: "كأس العالم",
+    url: `${IPTV_SERVER}/live/${IPTV_USERNAME}/${IPTV_PASSWORD}/2004.ts`,
+    stream_id: 2004
+  },
+  {
+    name: "Alkass EXTRA Two HD (كأس العالم)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF5zI5s0P-3l3r7tZ8LwZ8F1P5k4D6D2A&s",
+    group: "كأس العالم",
+    url: `${IPTV_SERVER}/live/${IPTV_USERNAME}/${IPTV_PASSWORD}/2005.ts`,
+    stream_id: 2005
+  }
+];
+
+export async function fetchAndParseM3U(filterKeyword: string): Promise<M3UChannel[]> {
+  const m3uUrl = `${IPTV_SERVER}/get.php?username=${IPTV_USERNAME}&password=${IPTV_PASSWORD}&type=m3u_plus&output=ts`;
+  
+  try {
+    const res = await fetch(m3uUrl, { 
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(6000) // 6 second timeout
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP error ${res.status}`);
+    }
+
+    const text = await res.text();
+    const lines = text.split('\n');
+    const channels: M3UChannel[] = [];
+    
+    let currentInfo: {
+      name: string;
+      logo: string;
+      group: string;
+    } | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      if (line.startsWith('#EXTINF:')) {
+        // Parse metadata
+        const nameMatch = line.match(/,(.+)$/);
+        const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+        const groupMatch = line.match(/group-title="([^"]+)"/);
+
+        currentInfo = {
+          name: nameMatch ? nameMatch[1].trim() : 'Unknown Channel',
+          logo: logoMatch ? logoMatch[1] : '',
+          group: groupMatch ? groupMatch[1] : 'Channels',
+        };
+      } else if (line.startsWith('http') && currentInfo) {
+        const url = line;
+        
+        // Extract stream ID from URL (e.g. /live/user/pass/12345.ts -> 12345)
+        const idMatch = url.match(/\/(\d+)\.(ts|m3u8)/);
+        const stream_id = idMatch ? parseInt(idMatch[1]) : Math.floor(Math.random() * 10000);
+
+        if (currentInfo.name.toLowerCase().includes(filterKeyword.toLowerCase())) {
+          channels.push({
+            name: currentInfo.name,
+            logo: currentInfo.logo,
+            group: currentInfo.group,
+            url,
+            stream_id,
+          });
+        }
+        currentInfo = null;
+      }
+    }
+
+    return channels;
+  } catch (error) {
+    console.warn("M3U fetch failed or timed out. Falling back to mock data.", error);
+    // Return filtered mock data
+    return MOCK_WORLD_CUP_CHANNELS.filter(c => 
+      c.name.toLowerCase().includes(filterKeyword.toLowerCase())
+    );
+  }
+}
