@@ -294,7 +294,13 @@ export async function fetchAndParseM3U(filterKeyword: string): Promise<M3UChanne
         const idMatch = url.match(/\/(\d+)\.(ts|m3u8)/);
         const stream_id = idMatch ? parseInt(idMatch[1]) : Math.floor(Math.random() * 10000);
 
-        if (currentInfo.name.toLowerCase().includes(filterKeyword.toLowerCase())) {
+        const nameUpper = currentInfo.name.toUpperCase();
+        if (
+          nameUpper.includes("كأس العالم") ||
+          nameUpper.includes("WORLD CUP") ||
+          nameUpper.includes("WORLD_CUP") ||
+          (filterKeyword && nameUpper.includes(filterKeyword.toUpperCase()))
+        ) {
           channels.push({
             name: currentInfo.name,
             logo: currentInfo.logo,
