@@ -5,7 +5,7 @@ const IPTV_USERNAME = process.env.IPTV_USERNAME || '';
 const IPTV_PASSWORD = process.env.IPTV_PASSWORD || '';
 
 // Increase the max duration for streaming (Vercel Pro: up to 300s, Hobby: 60s)
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get('type'); // live, vod, series
