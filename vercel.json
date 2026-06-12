@@ -1,10 +1,5 @@
 {
   "framework": "nextjs",
   "buildCommand": "next build",
-  "installCommand": "npm install",
-  "functions": {
-    "app/api/iptv/proxy/route.ts": {
-      "maxDuration": 60
-    }
-  }
+  "installCommand": "npm install"
 }
