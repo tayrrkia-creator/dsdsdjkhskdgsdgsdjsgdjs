@@ -38,7 +38,12 @@ export async function GET(request: NextRequest) {
       });
   }
 
-  const upstreamUrl = `${IPTV_SERVER}${upstreamPath}`;
+  // Normalize URL to avoid double slashes
+  const serverBase = IPTV_SERVER.endsWith('/') ? IPTV_SERVER.slice(0, -1) : IPTV_SERVER;
+  const pathPart = upstreamPath.startsWith('/') ? upstreamPath : `/${upstreamPath}`;
+  const upstreamUrl = `${serverBase}${pathPart}`;
+
+  console.log(`[Proxy] Requesting upstream: ${upstreamUrl}`);
 
   try {
     const upstreamRes = await fetch(upstreamUrl, {
@@ -50,13 +55,15 @@ export async function GET(request: NextRequest) {
     });
 
     if (!upstreamRes.ok) {
-      return new Response(JSON.stringify({ error: `Upstream error: ${upstreamRes.status}` }), {
+      console.error(`[Proxy] Upstream error status: ${upstreamRes.status} ${upstreamRes.statusText}`);
+      return new Response(JSON.stringify({ error: `Upstream error: ${upstreamRes.status} ${upstreamRes.statusText}` }), {
         status: upstreamRes.status,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
     if (!upstreamRes.body) {
+      console.error('[Proxy] No stream body received from upstream');
       return new Response(JSON.stringify({ error: 'No stream body received' }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
@@ -72,6 +79,8 @@ export async function GET(request: NextRequest) {
           ? 'video/mp4'
           : 'application/octet-stream';
 
+    console.log(`[Proxy] Streaming upstream response. Content-Type: ${contentType}`);
+
     // Stream the response back to the client
     return new Response(upstreamRes.body, {
       status: 200,
@@ -80,13 +89,15 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Range',
+        'Access-Control-Allow-Headers': 'Range, Content-Type',
         'Transfer-Encoding': 'chunked',
+        'X-Accel-Buffering': 'no', // Disable Vercel/Cloudflare buffering
+        'Content-Encoding': 'identity', // Prevent compression (buffering)
       },
     });
   } catch (error: any) {
-    console.error('Proxy error:', error);
-    return new Response(JSON.stringify({ error: 'Failed to connect to stream server' }), {
+    console.error('[Proxy] Connection error:', error);
+    return new Response(JSON.stringify({ error: `Failed to connect to stream server: ${error.message || error}` }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' },
     });

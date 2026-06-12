@@ -228,12 +228,36 @@ export default function VideoPlayer({ src, title, autoPlay = true, isLive = fals
     const onCanPlay = () => {
       if (!isBufferingDelay) setIsLoading(false);
     };
-    const onVideoError = () => {
+    const onVideoError = async () => {
       setIsLoading(false);
-      if (!playerError && !isBufferingDelay) {
-        setPlayerError('The media playback was aborted. The video is either unsupported, offline, or your connection was interrupted.');
-        onError?.('Media playback error');
+      if (playerError || isBufferingDelay) return;
+
+      const video = videoRef.current;
+      let detailedError = 'The media playback was aborted. The video is either unsupported, offline, or your connection was interrupted.';
+      
+      if (video && video.error) {
+        detailedError += ` (Video Error Code: ${video.error.code})`;
       }
+
+      try {
+        // Probe the URL to get the HTTP status code
+        const probeRes = await fetch(src, { method: 'GET' });
+        if (!probeRes.ok) {
+          let errorText = '';
+          try {
+            const json = await probeRes.json();
+            errorText = json.error || JSON.stringify(json);
+          } catch {
+            errorText = await probeRes.text();
+          }
+          detailedError = `Failed to load stream: Server returned HTTP ${probeRes.status} (${errorText.substring(0, 100) || probeRes.statusText})`;
+        }
+      } catch (fetchErr: any) {
+        detailedError = `Failed to load stream: Network connection error (${fetchErr.message || fetchErr})`;
+      }
+
+      setPlayerError(detailedError);
+      onError?.(detailedError);
     };
 
     video.addEventListener('play', onPlay);
